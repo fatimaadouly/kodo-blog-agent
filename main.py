@@ -7,11 +7,11 @@ import schedule
 from datetime import datetime
 
 # ── Configuration ──────────────────────────────────────────────
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_KEY", "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")
-PEXELS_KEY    = os.environ.get("PEXELS_KEY",    "ZRymppu6gsDcHPfG2IrgM0EAviOihfpajg8raicsasyqJc2vI9shGD63")
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_KEY", "")
+PEXELS_KEY    = os.environ.get("PEXELS_KEY",    "")
 WP_URL        = os.environ.get("WP_URL",        "https://www.kodo.fr/blog/wp-json/wp/v2")
 WP_USER       = os.environ.get("WP_USER",       "IA blog")
-WP_PASSWORD   = os.environ.get("WP_PASSWORD",   "RzvY nbNb vV3g YUoB mGc3 qqYd")
+WP_PASSWORD   = os.environ.get("WP_PASSWORD",   "")
 
 WP_AUTH = base64.b64encode(f"{WP_USER}:{WP_PASSWORD}".encode()).decode()
 
@@ -21,21 +21,72 @@ ANTHROPIC_HEADERS = {
     "content-type": "application/json"
 }
 
-# ── Étape 1 : Claude choisit le sujet ──────────────────────────
+# Fichier pour mémoriser les sujets déjà publiés
+HISTORIQUE_FILE = "sujets_publies.json"
+
+SUJETS_POOL = [
+    "Odoo 19 et l'intelligence artificielle : ce que ca change pour les PME",
+    "Migration Odoo : les 7 erreurs a eviter absolument",
+    "Odoo vs SAP Business One : quel ERP choisir pour une PME en 2026",
+    "Module CRM Odoo : comment booster ses ventes et piloter son pipeline",
+    "Odoo pour le secteur industriel : production, stocks et qualite",
+    "ROI d'un projet Odoo : comment mesurer le retour sur investissement",
+    "Formation Odoo : pourquoi former ses equipes pour reussir l'adoption",
+    "Interconnexion Odoo : connecter son ERP avec ses outils metier",
+    "Odoo et la gestion RH : conges, paie et recrutement dans un seul outil",
+    "Comment bien choisir son integrateur Odoo en France",
+    "Odoo pour le e-commerce : gerer boutique et logistique dans un seul ERP",
+    "Tableau de bord Odoo : piloter son activite en temps reel",
+    "Conduite du changement dans un projet ERP : les cles du succes",
+    "Odoo et la gestion de projet : planifier, suivre et livrer",
+    "Module comptabilite Odoo : automatiser sa gestion financiere",
+    "Odoo pour les PME du batiment : devis, chantiers et facturation",
+    "Pourquoi passer d'Excel a Odoo : le guide pour les dirigeants de PME",
+    "Odoo et la supply chain : optimiser achats, stocks et livraisons",
+    "Les modules Odoo indispensables pour une PME en croissance",
+    "Accompagnement Odoo : pourquoi le support post-deploiement est crucial"
+]
+
+def charger_historique():
+    if os.path.exists(HISTORIQUE_FILE):
+        with open(HISTORIQUE_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def sauvegarder_historique(historique):
+    with open(HISTORIQUE_FILE, "w") as f:
+        json.dump(historique, f)
+
+# ── Étape 1 : Choisir un sujet non répété ─────────────────────
 def choisir_sujet():
     print(f"[{datetime.now()}] Choix du sujet...")
+    historique = charger_historique()
+
+    # Sujets non encore publiés
+    sujets_disponibles = [s for s in SUJETS_POOL if s not in historique]
+
+    # Si tout a été publié, on repart de zéro
+    if not sujets_disponibles:
+        sujets_disponibles = SUJETS_POOL
+        sauvegarder_historique([])
+
+    # Demander à Claude de choisir parmi les sujets disponibles
+    liste_sujets = "\n".join([f"- {s}" for s in sujets_disponibles[:10]])
+
     payload = {
         "model": "claude-opus-4-5",
         "max_tokens": 1024,
         "messages": [{
             "role": "user",
             "content": (
-                "Tu es l'agent editorial de Kodo (www.kodo.fr/blog), expert Odoo et ERP pour PME francaises. "
-                "Choisis UN sujet d'article de blog pertinent. Le sujet doit etre lie a Odoo, ERP, migration Odoo, "
-                "formation Odoo, actualites Odoo, modules Odoo, facturation electronique, ROI ERP, conduite du changement. "
+                f"Tu es l'agent editorial de Kodo (www.kodo.fr/blog), expert Odoo et ERP pour PME francaises.\n"
+                f"Choisis UN sujet parmi cette liste pour l'article d'aujourd'hui :\n{liste_sujets}\n\n"
+                "Choisis le sujet le plus pertinent et actuel. "
                 "Reponds UNIQUEMENT avec un objet JSON valide sans markdown sans backticks : "
-                "{\"sujet\": \"le sujet de l article\", \"angle\": \"l angle differentiant\", "
-                "\"mot_cle\": \"mot-cle principal SEO\", \"image_keyword\": \"1 mot anglais simple ex: office team dashboard\"}"
+                "{\"sujet\": \"le sujet choisi exactement comme dans la liste\", "
+                "\"angle\": \"l angle differentiant en 1 phrase\", "
+                "\"mot_cle\": \"mot-cle principal SEO\", "
+                "\"image_keyword\": \"1 mot anglais simple ex: office team dashboard meeting\"}"
             )
         }]
     }
@@ -45,10 +96,15 @@ def choisir_sujet():
     import re
     match = re.search(r'\{[\s\S]*\}', text)
     data = json.loads(match.group(0) if match else text)
+
+    # Mémoriser le sujet
+    historique.append(data.get("sujet", ""))
+    sauvegarder_historique(historique)
+
     print(f"[{datetime.now()}] Sujet choisi : {data.get('sujet')}")
     return data
 
-# ── Étape 2 : Récupérer une image Pexels ───────────────────────
+# ── Étape 2 : Récupérer une image Pexels ──────────────────────
 def recuperer_image(keyword):
     print(f"[{datetime.now()}] Recherche image Pexels : {keyword}")
     r = requests.get(
@@ -65,7 +121,7 @@ def recuperer_image(keyword):
     print(f"[{datetime.now()}] Image trouvee : {url}")
     return url
 
-# ── Étape 3 : Uploader l'image sur WordPress ───────────────────
+# ── Étape 3 : Uploader l'image sur WordPress ──────────────────
 def uploader_image(image_url, keyword):
     print(f"[{datetime.now()}] Telechargement image...")
     img_data = requests.get(image_url).content
@@ -135,8 +191,7 @@ def publier_article(article, media_id):
     r = requests.post(f"{WP_URL}/posts", headers=headers, json=payload)
     r.raise_for_status()
     post = r.json()
-    lien = post.get("link", "")
-    print(f"[{datetime.now()}] PUBLIE ! ID : {post['id']} — {lien}")
+    print(f"[{datetime.now()}] PUBLIE ! ID : {post['id']} — {post.get('link', '')}")
     return post
 
 # ── Pipeline principal ─────────────────────────────────────────
@@ -158,12 +213,10 @@ def publier_article_automatique():
 schedule.every().monday.at("09:00").do(publier_article_automatique)
 schedule.every().thursday.at("09:00").do(publier_article_automatique)
 
-print(f"[{datetime.now()}] Agent Kodo Blog demarre - Publication lundi et jeudi a 9h")
+print(f"[{datetime.now()}] Agent Kodo Blog demarre - En attente lundi et jeudi a 9h")
+print(f"[{datetime.now()}] Prochain declenchement planifie : lundi ou jeudi a 09:00")
 
-# Lancer immédiatement au démarrage pour tester
-publier_article_automatique()
-
-# Boucle infinie
+# Boucle infinie - NE PAS lancer au démarrage
 while True:
     schedule.run_pending()
     time.sleep(60)
